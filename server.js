@@ -19,8 +19,7 @@ const lotrClient = axios.create({
   }
 });
 
-// LOG DE CONTROL: Esto te dirá en Render si la clave se está leyendo
-console.log("Estado de la API Key:", LOTR_API_KEY ? "Cargada correctamente" : "FALTA LA API KEY");
+
 
 // --- AYUDANTE DE IMÁGENES (Se queda igual) ---
 const getCharacterImage = (name) => {
@@ -38,7 +37,28 @@ const getCharacterImage = (name) => {
   return `${baseUrl}/${corrections[fileName] || fileName}.jpg`;
 };
 
-// --- RUTAS BLINDADAS ---
+// GET /api/characters/:id
+app.get("/api/characters/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const response = await lotrClient.get(`/character/${id}`);
+    const char = response.data.docs[0] || null;
+    
+    if (!char) {
+      return res.status(404).json({ error: "Personaje no encontrado" });
+    }
+    
+    const enriched = {
+      ...char,
+      image: getCharacterImage(char.name)
+    };
+    
+    res.json(enriched);
+  } catch (error) {
+    console.error("Error en /api/characters/:id:", error.message);
+    res.status(404).json({ error: "Personaje no encontrado" });
+  }
+});
 
 // 1. LIBROS
 app.get("/api/books", async (req, res) => {
