@@ -1,5 +1,5 @@
 const express = require("express");
-const fetch = require("node-fetch");
+const { fetch } = require("undici");
 const cors = require("cors");
 require("dotenv").config();
 
@@ -20,20 +20,26 @@ console.log("Estado de la API Key:", LOTR_API_KEY ? "Cargada correctamente" : "F
 async function fetchLOTR(endpoint) {
   try {
     const url = `${LOTR_BASE_URL}${endpoint}`;
-    const response = await fetch(url, {
+    console.log('🔑 API Key:', LOTR_API_KEY);
+    console.log('📍 URL completa:', url);
+    console.log('🔐 Authorization header:', `Bearer ${LOTR_API_KEY}`);
+    
+    const apiResponse = await fetch(url, {
       headers: {
         'Authorization': `Bearer ${LOTR_API_KEY}`,
         'Content-Type': 'application/json'
       }
     });
 
-    if (!response.ok) {
-      throw new Error(`LOTR API error: ${response.status}`);
+    console.log('📡 Status de respuesta:', apiResponse.status);
+
+    if (!apiResponse.ok) {
+      throw new Error(`LOTR API error: ${apiResponse.status}`);
     }
 
-    return await response.json();
+    return await apiResponse.json();
   } catch (error) {
-    console.error("Error en fetchLOTR:", error.message);
+    console.error("❌ Error en fetchLOTR:", error.message);
     throw error;
   }
 }
