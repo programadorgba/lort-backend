@@ -1,5 +1,5 @@
 const express = require("express");
-const axios = require("axios");
+const fetch = require("node-fetch");
 const cors = require("cors");
 require("dotenv").config();
 
@@ -9,19 +9,36 @@ const PORT = process.env.PORT || 3002;
 app.use(cors());
 app.use(express.json());
 
-// CONFIGURACIÓN DE AXIOS: La sacamos fuera para poder depurarla
+// CONFIGURACIÓN DE LA API
 const LOTR_API_KEY = process.env.LOTR_API_KEY;
+const LOTR_BASE_URL = "https://theoneapi.dev/v2";
 
-const lotrClient = axios.create({
-  baseURL: "https://theoneapi.dev/v2",
-  headers: { 
-    Authorization: `Bearer ${LOTR_API_KEY}` 
+// LOG DE CONTROL
+console.log("Estado de la API Key:", LOTR_API_KEY ? "Cargada correctamente" : "FALTA LA API KEY");
+
+// --- HELPER: Petición a The One API ---
+async function fetchLOTR(endpoint) {
+  try {
+    const url = `${LOTR_BASE_URL}${endpoint}`;
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${LOTR_API_KEY}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`LOTR API error: ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error("Error en fetchLOTR:", error.message);
+    throw error;
   }
-});
+}
 
-
-
-// --- AYUDANTE DE IMÁGENES (Se queda igual) ---
+// --- AYUDANTE DE IMÁGENES ---
 const getCharacterImage = (name) => {
   const baseUrl = "https://cdn.jsdelivr.net/gh/lucas-m-ferreira/lotr-images@master/images";
   let fileName = name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, '-').trim();
@@ -37,12 +54,14 @@ const getCharacterImage = (name) => {
   return `${baseUrl}/${corrections[fileName] || fileName}.jpg`;
 };
 
-// GET /api/characters/:id
+// --- RUTAS ---
+
+// 1. PERSONAJE POR ID
 app.get("/api/characters/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const response = await lotrClient.get(`/character/${id}`);
-    const char = response.data.docs[0] || null;
+    const data = await fetchLOTR(`/character/${id}`);
+    const char = data.docs[0] || null;
     
     if (!char) {
       return res.status(404).json({ error: "Personaje no encontrado" });
@@ -60,11 +79,33 @@ app.get("/api/characters/:id", async (req, res) => {
   }
 });
 
-// 1. LIBROS
+// 2. PERSONAJES (con búsqueda y paginación)
+app.get("/api/characters", async (req, res) => {
+  try {
+    const { page = 1, limit = 20, name } = req.query;
+    let endpoint = `/character?page=${page}&limit=${limit}`;
+    if (name) endpoint += `&name=/${name}/i`;
+
+    const data = await fetchLOTR(endpoint);
+    
+    const docs = data.docs || [];
+    const enriched = docs.map(char => ({
+      ...char,
+      image: getCharacterImage(char.name)
+    }));
+    
+    res.json({ results: enriched, total: data.total || 0 });
+  } catch (error) {
+    console.error("Error en /api/characters:", error.message);
+    res.status(200).json({ results: [], total: 0, error: "API externa no disponible" });
+  }
+});
+
+// 3. LIBROS
 app.get("/api/books", async (req, res) => {
   try {
-    const response = await lotrClient.get("/book");
-    let books = response.data.docs || [];
+    const data = await fetchLOTR("/book");
+    let books = data.docs || [];
 
     const hasHobbit = books.some(b => b.name.toLowerCase().includes("hobbit"));
     if (!hasHobbit) {
@@ -76,40 +117,34 @@ app.get("/api/books", async (req, res) => {
     }
     res.json(books);
   } catch (error) {
-    console.error("Error en /api/books:", error.response?.data || error.message);
-    res.status(200).json([]); // Devolvemos array vacío para no romper el front
+    console.error("Error en /api/books:", error.message);
+    res.status(200).json([]);
   }
 });
 
-// 2. PERSONAJES (Aquí es donde daba el 500)
-app.get("/api/characters", async (req, res) => {
+// 4. CAPÍTULOS DE UN LIBRO
+app.get("/api/books/:id/chapters", async (req, res) => {
   try {
-    const { page = 1, limit = 20, name } = req.query;
-    let path = `/character?page=${page}&limit=${limit}`;
-    if (name) path += `&name=/${name}/i`;
-
-    const response = await lotrClient.get(path);
-    
-    // Verificamos que existan datos antes de mapear
-    const docs = response.data.docs || [];
-    const enriched = docs.map(char => ({
-      ...char,
-      image: getCharacterImage(char.name)
-    }));
-    
-    res.json({ results: enriched, total: response.data.total || 0 });
+    const { id } = req.params;
+    if (id === "the-hobbit-manual-id") {
+      return res.json([
+        { _id: "h1", chapterName: "An Unexpected Party" }, 
+        { _id: "h2", chapterName: "Roast Mutton" }
+      ]);
+    }
+    const data = await fetchLOTR(`/book/${id}/chapter`);
+    res.json(data.docs || []);
   } catch (error) {
-    console.error("Error en /api/characters:", error.response?.data || error.message);
-    // Si la API falla, mandamos un objeto válido pero vacío
-    res.status(200).json({ results: [], total: 0, error: "API externa no disponible" });
+    console.error("Error en /api/books/:id/chapters:", error.message);
+    res.status(200).json([]);
   }
 });
 
-// 3. MUNDOS
+// 5. MUNDOS / LUGARES
 app.get("/api/locations", async (req, res) => {
   try {
-    const response = await lotrClient.get("/place");
-    const docs = response.data.docs || [];
+    const data = await fetchLOTR("/place");
+    const docs = data.docs || [];
     const enriched = docs.map(place => ({
       ...place,
       image: "https://images.alphacoders.com/516/516664.jpg",
@@ -117,28 +152,15 @@ app.get("/api/locations", async (req, res) => {
     }));
     res.json(enriched);
   } catch (error) {
+    console.error("Error en /api/locations:", error.message);
     res.status(200).json([]);
   }
 });
 
-// 4. CAPÍTULOS
-app.get("/api/books/:id/chapters", async (req, res) => {
-  try {
-    const { id } = req.params;
-    if (id === "the-hobbit-manual-id") {
-      return res.json([{ _id: "h1", chapterName: "An Unexpected Party" }, { _id: "h2", chapterName: "Roast Mutton" }]);
-    }
-    const response = await lotrClient.get(`/book/${id}/chapter`);
-    res.json(response.data.docs || []);
-  } catch (error) {
-    res.status(200).json([]);
-  }
-});
-
-// 5. PELÍCULAS
+// 6. PELÍCULAS
 app.get("/api/movies", async (req, res) => {
   try {
-    const response = await lotrClient.get("/movie");
+    const data = await fetchLOTR("/movie");
     const moviePosters = {
       "The Fellowship of the Ring": "https://image.tmdb.org/t/p/original/6oom5QYv7nyJ6pbnGSxK6L6u604.jpg",
       "The Two Towers": "https://image.tmdb.org/t/p/original/5VTN0pR8gcqV3EPUHHfMGnne9vL.jpg",
@@ -148,7 +170,7 @@ app.get("/api/movies", async (req, res) => {
       "The Battle of the Five Armies": "https://image.tmdb.org/t/p/original/x79VvV6S77S5YvO88p99S99S99S.jpg"
     };
 
-    const docs = response.data.docs || [];
+    const docs = data.docs || [];
     const enriched = docs.map(movie => ({
       ...movie,
       poster: moviePosters[movie.name] || "https://via.placeholder.com/300x450?text=LOTR+Movie"
@@ -156,8 +178,9 @@ app.get("/api/movies", async (req, res) => {
 
     res.json(enriched);
   } catch (error) {
+    console.error("Error en /api/movies:", error.message);
     res.status(200).json([]);
   }
 });
 
-app.listen(PORT, () => console.log(`🚀 Servidor en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Servidor LOTR en puerto ${PORT}`));
