@@ -17,6 +17,9 @@ const WIKIPEDIA_API_EN = "https://en.wikipedia.org/w/api.php";
 
 console.log("Estado de la API Key:", LOTR_API_KEY ? "Cargada correctamente" : "❌ FALTA LA API KEY");
 
+// ✅ CACHE DE IMÁGENES
+const imageCache = new Map();
+
 // ✅ PERSONAJES PRINCIPALES (ordenados por importancia)
 const MAIN_CHARACTERS = [
   "Frodo Baggins",
@@ -39,7 +42,6 @@ const MAIN_CHARACTERS = [
   "Arwen",
   "Sauron",
   "Witch-king of Angmar",
-  "Gimli",
   "Treebeard",
   "Éomer",
   "Denethor",
@@ -116,19 +118,49 @@ async function getImageFromWikipedia(name, lang = "es") {
   }
 }
 
-// --- OBTENER IMAGEN: Wikipedia ES → Wikipedia EN → Fallback ---
+// --- OBTENER IMAGEN CON CACHE ---
 async function getCharacterImage(name) {
-  // 1️⃣ Intentar Wikipedia español
-  let image = await getImageFromWikipedia(name, "es");
-  if (image) return image;
+  // Si ya está en cache, devolverla inmediatamente
+  if (imageCache.has(name)) {
+    return imageCache.get(name);
+  }
 
-  // 2️⃣ Intentar Wikipedia inglés
-  image = await getImageFromWikipedia(name, "en");
-  if (image) return image;
+  let imageUrl = null;
 
-  // 3️⃣ Fallback: Imagen genérica de LOTR (necesario para personajes secundarios sin Wikipedia)
-  console.log(`⚠️ No se encontró imagen para ${name}, usando fallback`);
-  return "https://images.unsplash.com/photo-1589829085413-56de8ae18c73?w=400";
+  // 1️⃣ Intentar Wikipedia español con contexto LOTR
+  imageUrl = await getImageFromWikipedia(`${name} Tierra Media`, "es");
+  if (imageUrl) {
+    imageCache.set(name, imageUrl);
+    return imageUrl;
+  }
+
+  // 2️⃣ Intentar solo el nombre en español
+  imageUrl = await getImageFromWikipedia(name, "es");
+  if (imageUrl) {
+    imageCache.set(name, imageUrl);
+    return imageUrl;
+  }
+
+  // 3️⃣ Intentar Wikipedia inglés con contexto LOTR
+  imageUrl = await getImageFromWikipedia(`${name} Middle-earth`, "en");
+  if (imageUrl) {
+    imageCache.set(name, imageUrl);
+    return imageUrl;
+  }
+
+  // 4️⃣ Intentar solo el nombre en inglés
+  imageUrl = await getImageFromWikipedia(name, "en");
+  if (imageUrl) {
+    imageCache.set(name, imageUrl);
+    return imageUrl;
+  }
+
+  // 5️⃣ Fallback: imagen con iniciales del personaje
+  console.log(`⚠️ No se encontró imagen para ${name}, usando avatar con iniciales`);
+  imageUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&size=400&background=10b981&color=fff&bold=true`;
+  
+  imageCache.set(name, imageUrl);
+  return imageUrl;
 }
 
 // --- ORDENAR POR PRIORIDAD ---
@@ -137,21 +169,39 @@ function sortByPriority(characters) {
     const indexA = MAIN_CHARACTERS.indexOf(a.name);
     const indexB = MAIN_CHARACTERS.indexOf(b.name);
     
-    // Si ambos están en la lista de principales, ordenar por posición
     if (indexA !== -1 && indexB !== -1) {
       return indexA - indexB;
     }
     
-    // Si solo A está en la lista, A va primero
     if (indexA !== -1) return -1;
-    
-    // Si solo B está en la lista, B va primero
     if (indexB !== -1) return 1;
     
-    // Si ninguno está en la lista, orden alfabético
     return a.name.localeCompare(b.name);
   });
 }
+
+// --- 🆕 ENDPOINT: BUSCAR IMAGEN POR NOMBRE ---
+app.get('/api/character-image', async (req, res) => {
+  try {
+    const name = req.query.name;
+    
+    if (!name) {
+      return res.status(400).json({ error: 'Parámetro "name" requerido' });
+    }
+
+    console.log(`🔍 Buscando imagen para: ${name}`);
+    const imageUrl = await getCharacterImage(name);
+
+    res.json({ 
+      name, 
+      image: imageUrl,
+      cached: imageCache.has(name)
+    });
+  } catch (error) {
+    console.error("❌ Error en /api/character-image:", error.message);
+    res.status(500).json({ error: "Error obteniendo imagen" });
+  }
+});
 
 // --- PERSONAJES ---
 app.get("/api/characters", async (req, res) => {
@@ -239,5 +289,5 @@ app.get("/api/movies", async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`🚀 Servidor LOTR en puerto ${PORT}`);
+  console.log(`📸 Cache de imágenes: ${imageCache.size} entradas`);
 });
-
