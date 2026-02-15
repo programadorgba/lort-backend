@@ -45,24 +45,9 @@ async function fetchLOTR(endpoint) {
 
 // --- IMÁGENES DESDE GITHUB ---
 const getCharacterImage = (name) => {
-  const baseUrl =
-    "https://cdn.jsdelivr.net/gh/lucas-m-ferreira/lotr-images@master/images";
-
-  let fileName = name
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, "-")
-    .trim();
-
-  const corrections = {
-    "aragorn-ii": "aragorn",
-    "gandalf-the-grey": "gandalf",
-    "gandalf-the-white": "gandalf",
-    "samwise-gamgee": "sam",
-    "peregrin-took": "pippin",
-    "meriadoc-brandybuck": "merry"
-  };
+  // Genera un avatar único basado en el nombre del personaje
+  return `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(name)}&backgroundColor=1e3a8a,10b981&scale=80`;
+};
 
   return `${baseUrl}/${corrections[fileName] || fileName}.jpg`;
 };
