@@ -9,17 +9,18 @@ const PORT = process.env.PORT || 3002;
 app.use(cors());
 app.use(express.json());
 
-// ✅ URL CORRECTA
+// ✅ CONFIGURACIÓN
 const LOTR_API_KEY = process.env.LOTR_API_KEY;
 const LOTR_BASE_URL = "https://the-one-api.dev/v2";
+const WIKIPEDIA_API_ES = "https://es.wikipedia.org/w/api.php";
+const WIKIPEDIA_API_EN = "https://en.wikipedia.org/w/api.php";
 
 console.log("Estado de la API Key:", LOTR_API_KEY ? "Cargada correctamente" : "❌ FALTA LA API KEY");
 
-// --- HELPER ---
+// --- HELPER: Petición a The One API ---
 async function fetchLOTR(endpoint) {
   try {
     const url = `${LOTR_BASE_URL}${endpoint}`;
-
     console.log("📍 URL:", url);
 
     const apiResponse = await fetch(url, {
@@ -43,14 +44,63 @@ async function fetchLOTR(endpoint) {
   }
 }
 
-// --- IMÁGENES DESDE GITHUB ---
-const getCharacterImage = (name) => {
-  // Genera un avatar único basado en el nombre del personaje
-  return `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(name)}&backgroundColor=1e3a8a,10b981&scale=80`;
-};
+// --- HELPER: Buscar imagen en Wikipedia ---
+async function getImageFromWikipedia(name, lang = "es") {
+  try {
+    const apiUrl = lang === "es" ? WIKIPEDIA_API_ES : WIKIPEDIA_API_EN;
+    
+    // Normalizar nombre para búsqueda
+    const searchName = name
+      .replace(/[-–]/g, " ")
+      .replace(/[']/g, "'")
+      .trim();
 
-  return `${baseUrl}/${corrections[fileName] || fileName}.jpg`;
-};
+    const params = new URLSearchParams({
+      action: "query",
+      titles: searchName,
+      prop: "pageimages",
+      pithumbsize: 500,
+      format: "json",
+      origin: "*",
+      redirects: 1
+    });
+
+    const response = await fetch(`${apiUrl}?${params}`);
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    const pages = data.query?.pages;
+
+    if (!pages) return null;
+
+    const page = Object.values(pages)[0];
+
+    if (page && page.pageid && page.pageid > 0 && page.thumbnail?.source) {
+      console.log(`✅ Imagen encontrada para ${name} en Wikipedia ${lang.toUpperCase()}`);
+      return page.thumbnail.source;
+    }
+
+    return null;
+  } catch (error) {
+    console.error(`❌ Error buscando imagen en Wikipedia ${lang}:`, error.message);
+    return null;
+  }
+}
+
+// --- OBTENER IMAGEN: Wikipedia ES → Wikipedia EN → Fallback ---
+async function getCharacterImage(name) {
+  // 1️⃣ Intentar Wikipedia español
+  let image = await getImageFromWikipedia(name, "es");
+  if (image) return image;
+
+  // 2️⃣ Intentar Wikipedia inglés
+  image = await getImageFromWikipedia(name, "en");
+  if (image) return image;
+
+  // 3️⃣ Fallback: Imagen genérica de LOTR
+  console.log(`⚠️ No se encontró imagen para ${name}, usando fallback`);
+  return "https://images.unsplash.com/photo-1589829085413-56de8ae18c73?w=400";
+}
 
 // --- PERSONAJES ---
 app.get("/api/characters", async (req, res) => {
@@ -62,16 +112,20 @@ app.get("/api/characters", async (req, res) => {
 
     const data = await fetchLOTR(endpoint);
 
-    const enriched = (data.docs || []).map(char => ({
-      ...char,
-      image: getCharacterImage(char.name)
-    }));
+    // Obtener imágenes en paralelo para ser más rápido
+    const enriched = await Promise.all(
+      (data.docs || []).map(async (char) => ({
+        ...char,
+        image: await getCharacterImage(char.name)
+      }))
+    );
 
     res.json({
       total: data.total,
       results: enriched
     });
   } catch (error) {
+    console.error("❌ Error en /api/characters:", error.message);
     res.status(500).json({ error: "Error obteniendo personajes" });
   }
 });
@@ -88,9 +142,10 @@ app.get("/api/characters/:id", async (req, res) => {
 
     res.json({
       ...char,
-      image: getCharacterImage(char.name)
+      image: await getCharacterImage(char.name)
     });
   } catch (error) {
+    console.error("❌ Error en /api/characters/:id:", error.message);
     res.status(404).json({ error: "No encontrado" });
   }
 });
@@ -101,16 +156,18 @@ app.get("/api/books", async (req, res) => {
     const data = await fetchLOTR("/book");
     res.json(data.docs || []);
   } catch (error) {
+    console.error("❌ Error en /api/books:", error.message);
     res.status(500).json([]);
   }
 });
 
-// --- LOCATIONS (CORREGIDO) ---
+// --- LOCATIONS ---
 app.get("/api/locations", async (req, res) => {
   try {
     const data = await fetchLOTR("/location");
     res.json(data.docs || []);
   } catch (error) {
+    console.error("❌ Error en /api/locations:", error.message);
     res.status(500).json([]);
   }
 });
@@ -121,6 +178,7 @@ app.get("/api/movies", async (req, res) => {
     const data = await fetchLOTR("/movie");
     res.json(data.docs || []);
   } catch (error) {
+    console.error("❌ Error en /api/movies:", error.message);
     res.status(500).json([]);
   }
 });
