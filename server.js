@@ -17,6 +17,35 @@ const WIKIPEDIA_API_EN = "https://en.wikipedia.org/w/api.php";
 
 console.log("Estado de la API Key:", LOTR_API_KEY ? "Cargada correctamente" : "❌ FALTA LA API KEY");
 
+// ✅ PERSONAJES PRINCIPALES (ordenados por importancia)
+const MAIN_CHARACTERS = [
+  "Frodo Baggins",
+  "Gandalf",
+  "Aragorn",
+  "Legolas",
+  "Gimli",
+  "Samwise Gamgee",
+  "Boromir",
+  "Gollum",
+  "Saruman",
+  "Galadriel",
+  "Elrond",
+  "Bilbo Baggins",
+  "Peregrin Took",
+  "Meriadoc Brandybuck",
+  "Éowyn",
+  "Théoden",
+  "Faramir",
+  "Arwen",
+  "Sauron",
+  "Witch-king of Angmar",
+  "Gimli",
+  "Treebeard",
+  "Éomer",
+  "Denethor",
+  "Gríma Wormtongue"
+];
+
 // --- HELPER: Petición a The One API ---
 async function fetchLOTR(endpoint) {
   try {
@@ -97,9 +126,31 @@ async function getCharacterImage(name) {
   image = await getImageFromWikipedia(name, "en");
   if (image) return image;
 
-  // 3️⃣ Fallback: Imagen genérica de LOTR
+  // 3️⃣ Fallback: Imagen genérica de LOTR (necesario para personajes secundarios sin Wikipedia)
   console.log(`⚠️ No se encontró imagen para ${name}, usando fallback`);
   return "https://images.unsplash.com/photo-1589829085413-56de8ae18c73?w=400";
+}
+
+// --- ORDENAR POR PRIORIDAD ---
+function sortByPriority(characters) {
+  return characters.sort((a, b) => {
+    const indexA = MAIN_CHARACTERS.indexOf(a.name);
+    const indexB = MAIN_CHARACTERS.indexOf(b.name);
+    
+    // Si ambos están en la lista de principales, ordenar por posición
+    if (indexA !== -1 && indexB !== -1) {
+      return indexA - indexB;
+    }
+    
+    // Si solo A está en la lista, A va primero
+    if (indexA !== -1) return -1;
+    
+    // Si solo B está en la lista, B va primero
+    if (indexB !== -1) return 1;
+    
+    // Si ninguno está en la lista, orden alfabético
+    return a.name.localeCompare(b.name);
+  });
 }
 
 // --- PERSONAJES ---
@@ -112,7 +163,7 @@ app.get("/api/characters", async (req, res) => {
 
     const data = await fetchLOTR(endpoint);
 
-    // Obtener imágenes en paralelo para ser más rápido
+    // Obtener imágenes en paralelo
     const enriched = await Promise.all(
       (data.docs || []).map(async (char) => ({
         ...char,
@@ -120,9 +171,12 @@ app.get("/api/characters", async (req, res) => {
       }))
     );
 
+    // ✅ ORDENAR POR PRIORIDAD (personajes principales primero)
+    const sorted = sortByPriority(enriched);
+
     res.json({
       total: data.total,
-      results: enriched
+      results: sorted
     });
   } catch (error) {
     console.error("❌ Error en /api/characters:", error.message);
