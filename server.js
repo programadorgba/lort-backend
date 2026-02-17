@@ -331,6 +331,18 @@ app.get("/api/characters", async (req, res) => {
       }))
     );
 
+    // ✅ CAPÍTULOS DE UN LIBRO
+app.get("/api/books/:id/chapters", async (req, res) => {
+  try {
+    const data = await fetchLOTR(`/book/${req.params.id}/chapter`);
+    // La API devuelve los capítulos en data.docs
+    res.json(data.docs || []);
+  } catch (error) {
+    console.error("❌ Error en /api/books/:id/chapters:", error.message);
+    res.status(500).json({ error: "Error obteniendo capítulos" });
+  }
+});
+
     // Ordenar por prioridad
     const sorted = sortByPriority(enriched);
 
