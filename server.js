@@ -14,10 +14,11 @@ const LOTR_API_KEY = process.env.LOTR_API_KEY;
 const LOTR_BASE_URL = "https://the-one-api.dev/v2";
 const WIKIPEDIA_API_ES = "https://es.wikipedia.org/w/api.php";
 const WIKIPEDIA_API_EN = "https://en.wikipedia.org/w/api.php";
+const OPEN_LIBRARY_URL = "https://openlibrary.org/search.json";
 
 console.log("Estado de la API Key:", LOTR_API_KEY ? "Cargada correctamente" : "❌ FALTA LA API KEY");
 
-// ✅ CACHE DE IMÁGENES
+// ✅ CACHE DE IMÁGENES (para todos los tipos)
 const imageCache = new Map();
 
 // ✅ PERSONAJES PRINCIPALES (ordenados por importancia)
@@ -75,20 +76,14 @@ async function fetchLOTR(endpoint) {
   }
 }
 
-// --- HELPER: Buscar imagen en Wikipedia ---
-async function getImageFromWikipedia(name, lang = "es") {
+// --- HELPER: Buscar imagen en Wikipedia (genérico) ---
+async function getImageFromWikipedia(searchTerm, lang = "es") {
   try {
     const apiUrl = lang === "es" ? WIKIPEDIA_API_ES : WIKIPEDIA_API_EN;
     
-    // Normalizar nombre para búsqueda
-    const searchName = name
-      .replace(/[-–]/g, " ")
-      .replace(/[']/g, "'")
-      .trim();
-
     const params = new URLSearchParams({
       action: "query",
-      titles: searchName,
+      titles: searchTerm,
       prop: "pageimages",
       pithumbsize: 500,
       format: "json",
@@ -107,7 +102,7 @@ async function getImageFromWikipedia(name, lang = "es") {
     const page = Object.values(pages)[0];
 
     if (page && page.pageid && page.pageid > 0 && page.thumbnail?.source) {
-      console.log(`✅ Imagen encontrada para ${name} en Wikipedia ${lang.toUpperCase()}`);
+      console.log(`✅ Imagen encontrada para "${searchTerm}" en Wikipedia ${lang.toUpperCase()}`);
       return page.thumbnail.source;
     }
 
@@ -118,102 +113,217 @@ async function getImageFromWikipedia(name, lang = "es") {
   }
 }
 
-// --- OBTENER IMAGEN CON CACHE ---
+// --- HELPER: Imagen de personaje (con cache y fallback) ---
 async function getCharacterImage(name) {
-  // Si ya está en cache, devolverla inmediatamente
-  if (imageCache.has(name)) {
-    return imageCache.get(name);
-  }
+  const cacheKey = `char:${name}`;
+  if (imageCache.has(cacheKey)) return imageCache.get(cacheKey);
 
   let imageUrl = null;
 
-  // 1️⃣ Intentar Wikipedia español con contexto LOTR
-  imageUrl = await getImageFromWikipedia(`${name} Tierra Media`, "es");
-  if (imageUrl) {
-    imageCache.set(name, imageUrl);
-    return imageUrl;
+  // Intentos en varios idiomas y contextos
+  const attempts = [
+    { term: `${name} Tierra Media`, lang: "es" },
+    { term: name, lang: "es" },
+    { term: `${name} Middle-earth`, lang: "en" },
+    { term: name, lang: "en" }
+  ];
+
+  for (const { term, lang } of attempts) {
+    imageUrl = await getImageFromWikipedia(term, lang);
+    if (imageUrl) break;
   }
 
-  // 2️⃣ Intentar solo el nombre en español
-  imageUrl = await getImageFromWikipedia(name, "es");
-  if (imageUrl) {
-    imageCache.set(name, imageUrl);
-    return imageUrl;
+  // Fallback: avatar con iniciales
+  if (!imageUrl) {
+    console.log(`⚠️ No se encontró imagen para ${name}, usando avatar`);
+    imageUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&size=400&background=10b981&color=fff&bold=true`;
   }
 
-  // 3️⃣ Intentar Wikipedia inglés con contexto LOTR
-  imageUrl = await getImageFromWikipedia(`${name} Middle-earth`, "en");
-  if (imageUrl) {
-    imageCache.set(name, imageUrl);
-    return imageUrl;
+  imageCache.set(cacheKey, imageUrl);
+  return imageUrl;
+}
+
+// --- HELPER: Imagen de libro (portada) usando Open Library ---
+async function getBookCover(bookTitle) {
+  const cacheKey = `book:${bookTitle}`;
+  if (imageCache.has(cacheKey)) return imageCache.get(cacheKey);
+
+  try {
+    // Normalizar título: eliminar "The" inicial, etc.
+    const searchTitle = bookTitle.replace(/^(The|A|An)\s+/i, '').trim();
+    const url = `${OPEN_LIBRARY_URL}?title=${encodeURIComponent(searchTitle)}&limit=1`;
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (data.docs && data.docs.length > 0 && data.docs[0].cover_i) {
+      const coverId = data.docs[0].cover_i;
+      const coverUrl = `https://covers.openlibrary.org/b/id/${coverId}-L.jpg`;
+      imageCache.set(cacheKey, coverUrl);
+      return coverUrl;
+    }
+  } catch (error) {
+    console.error(`❌ Error obteniendo portada para "${bookTitle}":`, error.message);
   }
 
-  // 4️⃣ Intentar solo el nombre en inglés
-  imageUrl = await getImageFromWikipedia(name, "en");
-  if (imageUrl) {
-    imageCache.set(name, imageUrl);
-    return imageUrl;
+  // Fallback: imagen genérica
+  const fallback = `https://via.placeholder.com/300x450?text=${encodeURIComponent(bookTitle)}`;
+  imageCache.set(cacheKey, fallback);
+  return fallback;
+}
+
+// --- HELPER: Imagen de película (póster) desde Wikipedia ---
+async function getMoviePoster(movieName) {
+  const cacheKey = `movie:${movieName}`;
+  if (imageCache.has(cacheKey)) return imageCache.get(cacheKey);
+
+  // Para las películas de LOTR, los nombres en Wikipedia suelen ser:
+  // "The Lord of the Rings: The Fellowship of the Ring"
+  // Vamos a buscar con variantes
+  const variants = [
+    `The Lord of the Rings: ${movieName}`,
+    movieName,
+    `${movieName} film`,
+    `${movieName} movie`
+  ];
+
+  let imageUrl = null;
+  for (const variant of variants) {
+    // Intentar en inglés (más probable)
+    imageUrl = await getImageFromWikipedia(variant, "en");
+    if (imageUrl) break;
   }
 
-  // 5️⃣ Fallback: imagen con iniciales del personaje
-  console.log(`⚠️ No se encontró imagen para ${name}, usando avatar con iniciales`);
-  imageUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&size=400&background=10b981&color=fff&bold=true`;
-  
-  imageCache.set(name, imageUrl);
+  if (!imageUrl) {
+    // Fallback: placeholder
+    imageUrl = `https://via.placeholder.com/300x450?text=${encodeURIComponent(movieName)}`;
+  }
+
+  imageCache.set(cacheKey, imageUrl);
+  return imageUrl;
+}
+
+// --- HELPER: Imagen de ubicación desde Wikipedia ---
+async function getLocationImage(locationName) {
+  const cacheKey = `loc:${locationName}`;
+  if (imageCache.has(cacheKey)) return imageCache.get(cacheKey);
+
+  let imageUrl = null;
+  const attempts = [
+    { term: `${locationName} Tierra Media`, lang: "es" },
+    { term: locationName, lang: "es" },
+    { term: `${locationName} Middle-earth`, lang: "en" },
+    { term: locationName, lang: "en" }
+  ];
+
+  for (const { term, lang } of attempts) {
+    imageUrl = await getImageFromWikipedia(term, lang);
+    if (imageUrl) break;
+  }
+
+  if (!imageUrl) {
+    imageUrl = `https://via.placeholder.com/400x300?text=${encodeURIComponent(locationName)}`;
+  }
+
+  imageCache.set(cacheKey, imageUrl);
   return imageUrl;
 }
 
 // --- ORDENAR POR PRIORIDAD ---
+function normalizeName(name) {
+  // Extraer la primera palabra significativa (ignorando títulos)
+  const words = name.split(' ');
+  // Si el nombre tiene más de una palabra, tomar la primera que no sea "the", "of", etc.
+  for (const word of words) {
+    const lower = word.toLowerCase();
+    if (!['the', 'of', 'and', 'del', 'de', 'la', 'el'].includes(lower)) {
+      return word;
+    }
+  }
+  return words[0];
+}
+
 function sortByPriority(characters) {
   return characters.sort((a, b) => {
-    const indexA = MAIN_CHARACTERS.indexOf(a.name);
-    const indexB = MAIN_CHARACTERS.indexOf(b.name);
+    const aSimple = normalizeName(a.name);
+    const bSimple = normalizeName(b.name);
+    const indexA = MAIN_CHARACTERS.findIndex(c => 
+      c.toLowerCase().includes(aSimple.toLowerCase()) || 
+      aSimple.toLowerCase().includes(c.toLowerCase())
+    );
+    const indexB = MAIN_CHARACTERS.findIndex(c => 
+      c.toLowerCase().includes(bSimple.toLowerCase()) || 
+      bSimple.toLowerCase().includes(c.toLowerCase())
+    );
     
-    if (indexA !== -1 && indexB !== -1) {
-      return indexA - indexB;
-    }
-    
+    if (indexA !== -1 && indexB !== -1) return indexA - indexB;
     if (indexA !== -1) return -1;
     if (indexB !== -1) return 1;
-    
     return a.name.localeCompare(b.name);
   });
 }
 
-// --- 🆕 ENDPOINT: BUSCAR IMAGEN POR NOMBRE ---
+// --- ENDPOINTS ---
+
+// 🆕 Obtener imagen de personaje por nombre
 app.get('/api/character-image', async (req, res) => {
   try {
     const name = req.query.name;
-    
-    if (!name) {
-      return res.status(400).json({ error: 'Parámetro "name" requerido' });
-    }
-
-    console.log(`🔍 Buscando imagen para: ${name}`);
+    if (!name) return res.status(400).json({ error: 'Parámetro "name" requerido' });
     const imageUrl = await getCharacterImage(name);
-
-    res.json({ 
-      name, 
-      image: imageUrl,
-      cached: imageCache.has(name)
-    });
+    res.json({ name, image: imageUrl });
   } catch (error) {
-    console.error("❌ Error en /api/character-image:", error.message);
     res.status(500).json({ error: "Error obteniendo imagen" });
   }
 });
 
-// --- PERSONAJES ---
+// 📚 Obtener imagen de libro por título
+app.get('/api/book-cover', async (req, res) => {
+  try {
+    const title = req.query.title;
+    if (!title) return res.status(400).json({ error: 'Parámetro "title" requerido' });
+    const coverUrl = await getBookCover(title);
+    res.json({ title, cover: coverUrl });
+  } catch (error) {
+    res.status(500).json({ error: "Error obteniendo portada" });
+  }
+});
+
+// 🎬 Obtener póster de película por nombre
+app.get('/api/movie-poster', async (req, res) => {
+  try {
+    const name = req.query.name;
+    if (!name) return res.status(400).json({ error: 'Parámetro "name" requerido' });
+    const posterUrl = await getMoviePoster(name);
+    res.json({ name, poster: posterUrl });
+  } catch (error) {
+    res.status(500).json({ error: "Error obteniendo póster" });
+  }
+});
+
+// 🗺️ Obtener imagen de ubicación por nombre
+app.get('/api/location-image', async (req, res) => {
+  try {
+    const name = req.query.name;
+    if (!name) return res.status(400).json({ error: 'Parámetro "name" requerido' });
+    const imageUrl = await getLocationImage(name);
+    res.json({ name, image: imageUrl });
+  } catch (error) {
+    res.status(500).json({ error: "Error obteniendo imagen de ubicación" });
+  }
+});
+
+// ✅ PERSONAJES (con filtro por raza)
 app.get("/api/characters", async (req, res) => {
   try {
-    const { page = 1, limit = 20, name } = req.query;
+    const { page = 1, limit = 20, name, race } = req.query;
 
     let endpoint = `/character?page=${page}&limit=${limit}`;
     if (name) endpoint += `&name=/${encodeURIComponent(name)}/i`;
+    if (race) endpoint += `&race=${encodeURIComponent(race)}`; // Filtro por raza
 
     const data = await fetchLOTR(endpoint);
 
-    // Obtener imágenes en paralelo
+    // Enriquecer con imágenes
     const enriched = await Promise.all(
       (data.docs || []).map(async (char) => ({
         ...char,
@@ -221,7 +331,7 @@ app.get("/api/characters", async (req, res) => {
       }))
     );
 
-    // ✅ ORDENAR POR PRIORIDAD (personajes principales primero)
+    // Ordenar por prioridad
     const sorted = sortByPriority(enriched);
 
     res.json({
@@ -234,60 +344,81 @@ app.get("/api/characters", async (req, res) => {
   }
 });
 
-// --- PERSONAJE POR ID ---
+// ✅ PERSONAJE POR ID
 app.get("/api/characters/:id", async (req, res) => {
   try {
     const data = await fetchLOTR(`/character/${req.params.id}`);
     const char = data.docs[0];
-
-    if (!char) {
-      return res.status(404).json({ error: "No encontrado" });
-    }
+    if (!char) return res.status(404).json({ error: "No encontrado" });
 
     res.json({
       ...char,
       image: await getCharacterImage(char.name)
     });
   } catch (error) {
-    console.error("❌ Error en /api/characters/:id:", error.message);
     res.status(404).json({ error: "No encontrado" });
   }
 });
 
-// --- LIBROS ---
+// ✅ LIBROS (con portadas)
 app.get("/api/books", async (req, res) => {
   try {
     const data = await fetchLOTR("/book");
-    res.json(data.docs || []);
+    const books = await Promise.all(
+      (data.docs || []).map(async (book) => ({
+        ...book,
+        cover: await getBookCover(book.name)
+      }))
+    );
+    res.json(books);
   } catch (error) {
     console.error("❌ Error en /api/books:", error.message);
     res.status(500).json([]);
   }
 });
 
-// --- LOCATIONS ---
+// ✅ UBICACIONES (con imágenes)
 app.get("/api/locations", async (req, res) => {
   try {
     const data = await fetchLOTR("/location");
-    res.json(data.docs || []);
+    const locations = await Promise.all(
+      (data.docs || []).map(async (loc) => ({
+        ...loc,
+        image: await getLocationImage(loc.name)
+      }))
+    );
+    res.json(locations);
   } catch (error) {
     console.error("❌ Error en /api/locations:", error.message);
     res.status(500).json([]);
   }
 });
 
-// --- MOVIES ---
+// ✅ PELÍCULAS (con pósters)
 app.get("/api/movies", async (req, res) => {
   try {
     const data = await fetchLOTR("/movie");
-    res.json(data.docs || []);
+    const movies = await Promise.all(
+      (data.docs || []).map(async (movie) => ({
+        ...movie,
+        poster: await getMoviePoster(movie.name)
+      }))
+    );
+    res.json(movies);
   } catch (error) {
     console.error("❌ Error en /api/movies:", error.message);
     res.status(500).json([]);
   }
 });
 
+// 🆕 Limpiar caché (útil para desarrollo)
+app.post("/api/cache/clear", (req, res) => {
+  imageCache.clear();
+  res.json({ message: "Caché de imágenes limpiada" });
+});
+
+// Iniciar servidor
 app.listen(PORT, () => {
   console.log(`🚀 Servidor LOTR en puerto ${PORT}`);
-  console.log(`📸 Cache de imágenes: ${imageCache.size} entradas`);
+  console.log(`📸 Caché de imágenes: ${imageCache.size} entradas`);
 });
