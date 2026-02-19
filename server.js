@@ -197,9 +197,12 @@ async function getBookCover(originalTitle) {
 /** Película: Fandom API — los títulos del Hobbit tienen prefijo en la API */
 async function getMoviePoster(originalName) {
   const fandomTitles = {
-    "The Hobbit: An Unexpected Journey":        "An Unexpected Journey",
-    "The Hobbit: The Desolation of Smaug":      "The Desolation of Smaug",
-    "The Hobbit: The Battle of the Five Armies": "The Battle of the Five Armies",
+  "La Comunidad del Anillo":           "La Comunidad del Anillo",
+  "Las Dos Torres":                    "Las Dos Torres",
+  "El Retorno del Rey":                "El Retorno del Rey",
+  "Un Viaje Inesperado":               "Un Viaje Inesperado",
+  "La Desolación de Smaug":            "La Desolación de Smaug",
+  "La Batalla de los Cinco Ejércitos": "La Batalla de los Cinco Ejércitos",
   };
   const searchTitle = fandomTitles[originalName] || originalName;
   return getWikiaImage(searchTitle);
