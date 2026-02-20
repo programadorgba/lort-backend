@@ -6,6 +6,7 @@
 //  ✅ Películas y libros via Fandom API
 //  ✅ CORS desde variable de entorno
 //  ✅ Caché en memoria
+//  ✅ Promise.all en lotes de 10 para evitar timeout
 // ============================================================
 
 const express = require("express");
@@ -60,6 +61,10 @@ const TRANSLATIONS = {
   "The Silmarillion": "El Silmarillion",
   "The Hobbit Series": "Serie El Hobbit",
   "The Lord of the Rings Series": "Serie El Señor de los Anillos",
+  // ✅ FIX Bug 1: Añadidas traducciones de películas del Hobbit
+  "The Hobbit: An Unexpected Journey": "Un Viaje Inesperado",
+  "The Hobbit: The Desolation of Smaug": "La Desolación de Smaug",
+  "The Hobbit: The Battle of the Five Armies": "La Batalla de los Cinco Ejércitos",
 };
 
 // ─── PERSONAJES PRINCIPALES (orden de prioridad) ─────────────
@@ -80,7 +85,7 @@ const KNOWN_CHARACTER_IMAGES = {
   "Legolas":             "https://static.wikia.nocookie.net/lotr/images/2/2b/Legolas_profile.jpg/revision/latest?cb=20130117015559",
   "Gimli":               "https://static.wikia.nocookie.net/lotr/images/e/ec/Gimli_-_FOTR.png/revision/latest?cb=20130117015552",
   "Samwise Gamgee":      "https://static.wikia.nocookie.net/lotr/images/7/7b/Sam_FOTR_Promotional.jpg/revision/latest?cb=20130117015542",
-  "Boromir":             "https://static.wikia.nocookie.net/lotr/images/7/79/Boromir_-_FOTR.png/revision/latest?cb=20130117015549",
+  "Boromir":             "https://static.wikia.nocookie.net/lotr/images/b/b6/Boromir_on_Caradhras.jpg/revision/latest?cb=20130117015541",
   "Gollum":              "https://static.wikia.nocookie.net/lotr/images/e/e0/Gollum_Render.png/revision/latest?cb=20130117015555",
   "Saruman":             "https://static.wikia.nocookie.net/lotr/images/9/9a/Saruman_the_White.jpg/revision/latest?cb=20130117015605",
   "Galadriel":           "https://static.wikia.nocookie.net/lotr/images/b/b9/Galadriel_FOTR.jpg/revision/latest?cb=20130117015557",
@@ -98,28 +103,27 @@ const KNOWN_CHARACTER_IMAGES = {
 };
 
 // ─── UBICACIONES ESTÁTICAS ───────────────────────────────────
-// The One API no tiene /location — estos datos son propios
 const STATIC_LOCATIONS = [
-  { _id: "loc001", name: "La Comarca",               originalName: "The Shire",              region: "Eriador",         description: "Hogar tranquilo de los hobbits" },
-  { _id: "loc002", name: "Rivendel",                  originalName: "Rivendell",              region: "Eriador",         description: "Ciudad élfica de Elrond" },
+  { _id: "loc001", name: "La Comarca",               originalName: "The Shire",              region: "Eriador",           description: "Hogar tranquilo de los hobbits" },
+  { _id: "loc002", name: "Rivendel",                  originalName: "Rivendell",              region: "Eriador",           description: "Ciudad élfica de Elrond" },
   { _id: "loc003", name: "Moria",                     originalName: "Moria",                  region: "Montañas Nubladas", description: "Antigua mina enana bajo las montañas" },
-  { _id: "loc004", name: "Lothlórien",                originalName: "Lothlórien",             region: "Rhovanion",       description: "Bosque élfico de Galadriel" },
-  { _id: "loc005", name: "Mordor",                    originalName: "Mordor",                 region: "Rhûn",            description: "Tierra oscura de Sauron" },
-  { _id: "loc006", name: "Minas Tirith",              originalName: "Minas Tirith",           region: "Gondor",          description: "Ciudad blanca de Gondor" },
-  { _id: "loc007", name: "Edoras",                    originalName: "Edoras",                 region: "Rohan",           description: "Capital del reino de Rohan" },
-  { _id: "loc008", name: "Abismo de Helm",            originalName: "Helm's Deep",            region: "Rohan",           description: "Fortaleza de la gran batalla" },
-  { _id: "loc009", name: "Isengard",                  originalName: "Isengard",               region: "Nan Curunír",     description: "Fortaleza de Saruman" },
-  { _id: "loc010", name: "Monte del Destino",         originalName: "Mount Doom",             region: "Mordor",          description: "Volcán donde se forjó el Anillo" },
-  { _id: "loc011", name: "Minas Morgul",              originalName: "Minas Morgul",           region: "Gondor",          description: "Ciudad de los Nazgûl" },
-  { _id: "loc012", name: "Puerta Negra",              originalName: "The Black Gate",         region: "Mordor",          description: "Entrada principal a Mordor" },
-  { _id: "loc013", name: "Bosque de Fangorn",         originalName: "Fangorn",                region: "Rhovanion",       description: "Bosque antiguo hogar de los Ents" },
-  { _id: "loc014", name: "Los Puertos Grises",        originalName: "Grey Havens",            region: "Eriador",         description: "Puerto desde donde los elfos parten" },
-  { _id: "loc015", name: "Bree",                      originalName: "Bree",                   region: "Eriador",         description: "Ciudad de hombres y hobbits" },
-  { _id: "loc016", name: "Cima de los Vientos",       originalName: "Weathertop",             region: "Eriador",         description: "Ruinas donde Frodo fue herido" },
-  { _id: "loc017", name: "Ciénagas de los Muertos",   originalName: "Dead Marshes",           region: "Mordor",          description: "Pantanos con visiones de los caídos" },
-  { _id: "loc018", name: "Amon Hen",                  originalName: "Amon Hen",               region: "Rhovanion",       description: "Colina de la Vista, fin de la Comunidad" },
-  { _id: "loc019", name: "Erebor",                    originalName: "Erebor",                 region: "Rhovanion",       description: "La Montaña Solitaria de los enanos" },
-  { _id: "loc020", name: "Ciudad del Lago",           originalName: "Lake-town",              region: "Rhovanion",       description: "Ciudad sobre el lago Long" },
+  { _id: "loc004", name: "Lothlórien",                originalName: "Lothlórien",             region: "Rhovanion",         description: "Bosque élfico de Galadriel" },
+  { _id: "loc005", name: "Mordor",                    originalName: "Mordor",                 region: "Rhûn",              description: "Tierra oscura de Sauron" },
+  { _id: "loc006", name: "Minas Tirith",              originalName: "Minas Tirith",           region: "Gondor",            description: "Ciudad blanca de Gondor" },
+  { _id: "loc007", name: "Edoras",                    originalName: "Edoras",                 region: "Rohan",             description: "Capital del reino de Rohan" },
+  { _id: "loc008", name: "Abismo de Helm",            originalName: "Helm's Deep",            region: "Rohan",             description: "Fortaleza de la gran batalla" },
+  { _id: "loc009", name: "Isengard",                  originalName: "Isengard",               region: "Nan Curunír",       description: "Fortaleza de Saruman" },
+  { _id: "loc010", name: "Monte del Destino",         originalName: "Mount Doom",             region: "Mordor",            description: "Volcán donde se forjó el Anillo" },
+  { _id: "loc011", name: "Minas Morgul",              originalName: "Minas Morgul",           region: "Gondor",            description: "Ciudad de los Nazgûl" },
+  { _id: "loc012", name: "Puerta Negra",              originalName: "The Black Gate",         region: "Mordor",            description: "Entrada principal a Mordor" },
+  { _id: "loc013", name: "Bosque de Fangorn",         originalName: "Fangorn",                region: "Rhovanion",         description: "Bosque antiguo hogar de los Ents" },
+  { _id: "loc014", name: "Los Puertos Grises",        originalName: "Grey Havens",            region: "Eriador",           description: "Puerto desde donde los elfos parten" },
+  { _id: "loc015", name: "Bree",                      originalName: "Bree",                   region: "Eriador",           description: "Ciudad de hombres y hobbits" },
+  { _id: "loc016", name: "Cima de los Vientos",       originalName: "Weathertop",             region: "Eriador",           description: "Ruinas donde Frodo fue herido" },
+  { _id: "loc017", name: "Ciénagas de los Muertos",   originalName: "Dead Marshes",           region: "Mordor",            description: "Pantanos con visiones de los caídos" },
+  { _id: "loc018", name: "Amon Hen",                  originalName: "Amon Hen",               region: "Rhovanion",         description: "Colina de la Vista, fin de la Comunidad" },
+  { _id: "loc019", name: "Erebor",                    originalName: "Erebor",                 region: "Rhovanion",         description: "La Montaña Solitaria de los enanos" },
+  { _id: "loc020", name: "Ciudad del Lago",           originalName: "Lake-town",              region: "Rhovanion",         description: "Ciudad sobre el lago Long" },
 ];
 
 // ─── HELPERS ─────────────────────────────────────────────────
@@ -138,10 +142,6 @@ async function fetchLOTR(endpoint) {
   return response.json();
 }
 
-/**
- * Obtiene imagen desde Fandom Wiki API.
- * Probado y confirmado que devuelve URLs de wikia.nocookie.net sin restricciones.
- */
 async function getWikiaImage(pageTitle) {
   const cacheKey = `wikia:${pageTitle}`;
   if (imageCache.has(cacheKey)) return imageCache.get(cacheKey);
@@ -155,7 +155,6 @@ async function getWikiaImage(pageTitle) {
     if (pages) {
       const page = Object.values(pages)[0];
       if (page?.thumbnail?.source) {
-        // Quitar escala para imagen completa
         const fullUrl = page.thumbnail.source.replace(/\/scale-to-width-down\/\d+/, "");
         imageCache.set(cacheKey, fullUrl);
         console.log(`🖼️  Wikia OK: "${pageTitle}"`);
@@ -171,7 +170,6 @@ async function getWikiaImage(pageTitle) {
   return fallback;
 }
 
-/** Personaje: hardcodeado primero, luego Fandom API */
 async function getCharacterImage(originalName) {
   const cacheKey = `char:${originalName}`;
   if (imageCache.has(cacheKey)) return imageCache.get(cacheKey);
@@ -184,31 +182,28 @@ async function getCharacterImage(originalName) {
   return getWikiaImage(originalName);
 }
 
-/** Ubicación: Fandom API con nombre en inglés */
 async function getLocationImage(originalName) {
   return getWikiaImage(originalName);
 }
 
-/** Libro: Fandom API */
 async function getBookCover(originalTitle) {
   return getWikiaImage(originalTitle);
 }
 
-/** Película: Fandom API — los títulos del Hobbit tienen prefijo en la API */
-async function getMoviePoster(originalName) {
+// ✅ FIX Bug 1: ahora recibe el nombre ya traducido y lo busca correctamente
+async function getMoviePoster(translatedName) {
   const fandomTitles = {
-  "La Comunidad del Anillo":           "La Comunidad del Anillo",
-  "Las Dos Torres":                    "Las Dos Torres",
-  "El Retorno del Rey":                "El Retorno del Rey",
-  "Un Viaje Inesperado":               "Un Viaje Inesperado",
-  "La Desolación de Smaug":            "La Desolación de Smaug",
-  "La Batalla de los Cinco Ejércitos": "La Batalla de los Cinco Ejércitos",
+    "La Comunidad del Anillo":           "The Lord of the Rings: The Fellowship of the Ring",
+    "Las Dos Torres":                    "The Lord of the Rings: The Two Towers",
+    "El Retorno del Rey":                "The Lord of the Rings: The Return of the King",
+    "Un Viaje Inesperado":               "The Hobbit: An Unexpected Journey",
+    "La Desolación de Smaug":            "The Hobbit: The Desolation of Smaug",
+    "La Batalla de los Cinco Ejércitos": "The Hobbit: The Battle of the Five Armies",
   };
-  const searchTitle = fandomTitles[originalName] || originalName;
+  const searchTitle = fandomTitles[translatedName] || translatedName;
   return getWikiaImage(searchTitle);
 }
 
-/** Ordena personajes: principales primero, resto alfabético */
 function sortByPriority(characters) {
   return characters.sort((a, b) => {
     const idxA = MAIN_CHARACTERS.indexOf(a.originalName);
@@ -218,6 +213,17 @@ function sortByPriority(characters) {
     if (idxB !== -1) return 1;
     return a.name.localeCompare(b.name);
   });
+}
+
+// ✅ FIX Bug 2: procesa en lotes de 10 para no saturar Fandom API
+async function processInBatches(items, asyncMapper, batchSize = 10) {
+  const results = [];
+  for (let i = 0; i < items.length; i += batchSize) {
+    const chunk = items.slice(i, i + batchSize);
+    const chunkResults = await Promise.all(chunk.map(asyncMapper));
+    results.push(...chunkResults);
+  }
+  return results;
 }
 
 // ─── ENDPOINTS ───────────────────────────────────────────────
@@ -232,7 +238,7 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-// 👤 Personajes
+// 👤 Personajes — ✅ FIX Bug 2: lotes de 10
 app.get("/api/characters", async (req, res) => {
   try {
     const { page = 1, limit = 100, name, race } = req.query;
@@ -242,20 +248,18 @@ app.get("/api/characters", async (req, res) => {
 
     const data = await fetchLOTR(endpoint);
 
-    const enriched = await Promise.all(
-      (data.docs || []).map(async (char) => ({
-        _id: char._id,
-        name: translate(char.name),
-        originalName: char.name,
-        race: char.race,
-        gender: char.gender,
-        birth: char.birth,
-        death: char.death,
-        realm: char.realm,
-        spouse: char.spouse,
-        image: await getCharacterImage(char.name),
-      }))
-    );
+    const enriched = await processInBatches(data.docs || [], async (char) => ({
+      _id: char._id,
+      name: translate(char.name),
+      originalName: char.name,
+      race: char.race,
+      gender: char.gender,
+      birth: char.birth,
+      death: char.death,
+      realm: char.realm,
+      spouse: char.spouse,
+      image: await getCharacterImage(char.name),
+    }));
 
     res.json({
       total: data.total,
@@ -287,15 +291,13 @@ app.get("/api/characters/:id", async (req, res) => {
   }
 });
 
-// 📍 Ubicaciones (datos estáticos + imágenes Fandom)
+// 📍 Ubicaciones — ✅ FIX Bug 2: lotes de 10
 app.get("/api/locations", async (req, res) => {
   try {
-    const locations = await Promise.all(
-      STATIC_LOCATIONS.map(async (loc) => ({
-        ...loc,
-        image: await getLocationImage(loc.originalName),
-      }))
-    );
+    const locations = await processInBatches(STATIC_LOCATIONS, async (loc) => ({
+      ...loc,
+      image: await getLocationImage(loc.originalName),
+    }));
     res.json(locations);
   } catch (err) {
     console.error("❌ /api/locations:", err.message);
@@ -318,14 +320,12 @@ app.get("/api/locations/:id", async (req, res) => {
 app.get("/api/books", async (req, res) => {
   try {
     const data = await fetchLOTR("/book");
-    const books = await Promise.all(
-      (data.docs || []).map(async (book) => ({
-        _id: book._id,
-        name: translate(book.name),
-        originalName: book.name,
-        cover: await getBookCover(book.name),
-      }))
-    );
+    const books = await processInBatches(data.docs || [], async (book) => ({
+      _id: book._id,
+      name: translate(book.name),
+      originalName: book.name,
+      cover: await getBookCover(book.name),
+    }));
     res.json(books);
   } catch (err) {
     console.error("❌ /api/books:", err.message);
@@ -344,14 +344,15 @@ app.get("/api/books/:id/chapters", async (req, res) => {
   }
 });
 
-// 🎬 Películas
+// 🎬 Películas — ✅ FIX Bug 1: se pasa el nombre ya traducido a getMoviePoster
 app.get("/api/movies", async (req, res) => {
   try {
     const data = await fetchLOTR("/movie");
-    const movies = await Promise.all(
-      (data.docs || []).map(async (movie) => ({
+    const movies = await processInBatches(data.docs || [], async (movie) => {
+      const translatedName = translate(movie.name);
+      return {
         _id: movie._id,
-        name: translate(movie.name),
+        name: translatedName,
         originalName: movie.name,
         runtimeInMinutes: movie.runtimeInMinutes,
         budgetInMillions: movie.budgetInMillions,
@@ -359,9 +360,9 @@ app.get("/api/movies", async (req, res) => {
         academyAwardNominations: movie.academyAwardNominations,
         academyAwardWins: movie.academyAwardWins,
         rottenTomatoesScore: movie.rottenTomatoesScore,
-        poster: await getMoviePoster(movie.name),
-      }))
-    );
+        poster: await getMoviePoster(translatedName), // ✅ nombre traducido
+      };
+    });
     res.json(movies);
   } catch (err) {
     console.error("❌ /api/movies:", err.message);
