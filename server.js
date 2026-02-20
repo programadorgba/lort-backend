@@ -80,9 +80,9 @@ const MAIN_CHARACTERS = [
 // ─── IMÁGENES DE PERSONAJES (hardcodeadas, confirmadas) ──────
 // ✅ Imágenes via ui-avatars como fallback garantizado + Wikia donde funciona
 const KNOWN_CHARACTER_IMAGES = {
-  "Frodo Baggins":       "https://ui-avatars.com/api/?name=Frodo+Baggins&size=400&background=8B7355&color=fff&bold=true",
-  "Gandalf":             "https://ui-avatars.com/api/?name=Gandalf&size=400&background=C0C0C0&color=333&bold=true",
-  "Aragorn":             "https://ui-avatars.com/api/?name=Aragorn&size=400&background=2c4a1e&color=fff&bold=true",
+  "Frodo Baggins":       "https://lotr.fandom.com/wiki/Frodo_Baggins?file=Frodo_%28FotR%29.png",
+  "Gandalf":             "https://lotr.fandom.com/wiki/Gandalf?file=Gandalf%3B_The_White.jpg#Third_Age",
+  "Aragorn":             "https://lotr.fandom.com/wiki/Aragorn_II?file=King_Aragorn.PNG",
   "Legolas":             "https://ui-avatars.com/api/?name=Legolas&size=400&background=5b8a3c&color=fff&bold=true",
   "Gimli":               "https://ui-avatars.com/api/?name=Gimli&size=400&background=8B4513&color=fff&bold=true",
   "Samwise Gamgee":      "https://ui-avatars.com/api/?name=Samwise+Gamgee&size=400&background=8B7355&color=fff&bold=true",
